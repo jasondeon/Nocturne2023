@@ -1,0 +1,7 @@
+__pycache__/
+venv/
+wandb/
+*.pickle
+*.pt
+*.mid
+*.mp3

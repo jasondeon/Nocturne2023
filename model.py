@@ -21,7 +21,7 @@ class BertModel(nn.Module):
 
     def generate_square_subsequent_mask(self, n, sz):
         mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0,1)
-        #mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0)) # (L, L)
+        # mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0)) # (L, L)
         mask = mask.float().unsqueeze(0).repeat(n, 1, 1) # (B, L, L)
         return mask
 
@@ -36,10 +36,7 @@ if __name__ == "__main__":
     }
     args = Namespace(**args_dict)
     model = BertModel(args)
+    print(model)
     inp = torch.randint(0, 387, (3,512), dtype=torch.long)
-    mean = torch.mean(inp.float(), dim=1, keepdim=True)
-    var = torch.var(inp.float(), dim=1, keepdim=True)
-    print(inp.shape, mean.shape, var.shape)
-    import inspect
-    #print(inspect.getsource(model.bert.forward))
-    out = model(inp, mean, var)
+    print(inp.shape)
+    out = model(inp)

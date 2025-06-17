@@ -1,71 +1,53 @@
-import os
 import torch
+import numpy as np
 
 from utils import *
-from tqdm import tqdm
 from model import BertModel
 
-
-# Conditioning variables
-MEAN_PITCH = "midhigh" # ["low", "midlow", "midhigh", "high"]
-VAR_PITCH = "high" # ["low", "midlow", "midhigh", "high"]
-SAMPLE_LEN = 2 # in minutes
 DEVICE = "cuda:0"
 
 
-def single_sample():
-    '''Generate single output of length=seq_len tokens'''
-    checkpoint = torch.load("bert_maestro.pt", map_location=DEVICE)
-    args = checkpoint["args"]
-    model = BertModel(args).to(DEVICE)
-    model.load_state_dict(checkpoint['model_state_dict'])
+def bins(mean_pitch, var_pitch):
+    # pitch bins (388,389,390,391): 0-60, 60-64, 65-70, 70+ 
+    # var bins (392,393,394,395): 0-95, 95-135, 135-190, 190+
+    if mean_pitch < 60:
+        mean_i = 388
+    elif mean_pitch < 65:
+        mean_i = 389
+    elif mean_pitch < 70:
+        mean_i = 390
+    else:
+        mean_i = 391
+    if var_pitch < 95:
+        var_i = 392
+    elif var_pitch < 135:
+        var_i = 393
+    elif var_pitch < 190:
+        var_i = 394
+    else:
+        var_i = 395
+    return mean_i, var_i
 
-    tok1 = {"low":388, "midlow":389, "midhigh":390, "high":391}[MEAN_PITCH]
-    tok2 = {"low":392, "midlow":393, "midhigh":394, "high":395}[VAR_PITCH]
-    out = torch.empty((1, 0), dtype=torch.long).to(DEVICE)
-    out = torch.cat((out, torch.tensor([[tok1, tok2]], dtype=torch.long, device=DEVICE)), dim=1)
+print("Lib loaded")
 
-    model.eval()
-    with torch.no_grad():
-        for i in tqdm(range(args.seq_len-2)):
-            logits = model(out)[:,-1,:] # (1, V)
-            probs = torch.nn.functional.softmax(logits, dim=1) # (1, V)
-            tok = torch.multinomial(probs, 1) # (1, 1)
-            out = torch.cat((out, tok), dim=1) # (1, L)
-    out = list(map(MidiToken.tok_mapping, out[0,2:]))
-    midi = dat2mid_anna(out)
-    midi.write("test.mid")
+sz = 90
+x = np.zeros((sz,))
+tgt = torch.randint(low=0, high=396, size=(1,sz+2), device=DEVICE)
 
+print("File loaded")
 
-def long_sample():
-    '''Generate output until length=SAMPLE_LEN minutes'''
-    checkpoint = torch.load("bert_maestro.pt", map_location=DEVICE)
-    args = checkpoint["args"]
-    model = BertModel(args).to(DEVICE)
-    model.load_state_dict(checkpoint['model_state_dict'])
+checkpoint = torch.load("bert_maestro.pt", map_location=DEVICE)
+args = checkpoint["args"]
+model = BertModel(args).to(DEVICE)
+model.load_state_dict(checkpoint['model_state_dict'])
 
-    tok1 = {"low":388, "midlow":389, "midhigh":390, "high":391}[MEAN_PITCH]
-    tok2 = {"low":392, "midlow":393, "midhigh":394, "high":395}[VAR_PITCH]
-    out = torch.empty((1, 0), dtype=torch.long).to(DEVICE)
-    cond_toks = torch.tensor([[tok1, tok2]], dtype=torch.long, device=DEVICE)
-    curr_len = 0
+print("Model loaded")
 
-    model.eval()
-    with torch.no_grad():
-        while curr_len < SAMPLE_LEN * 60_000:
-            logits = model(torch.cat((cond_toks, out[:,-256:]), dim=1))[:,-1,:] # (1, V)
-            probs = torch.nn.functional.softmax(logits, dim=1) # (1, V)
-            tok = torch.multinomial(probs, 1) # (1, 1)
-            out = torch.cat((out, tok), dim=1) # (1, L)
-            midi_token = MidiToken.tok_mapping(tok[0,0])
-            if midi_token.type == "TIME_SHIFT":
-                curr_len += midi_token.value
-                print(f"{curr_len/60_000:3.2f}m out of {SAMPLE_LEN:3.0f}m", end="\r")
-
-    out = list(map(MidiToken.tok_mapping, out[0]))
-    midi = dat2mid_anna(out)
-    midi.write("output.mid")
-
-
-if __name__ == "__main__":
-    long_sample()
+print(len(x))
+model.eval()
+with torch.no_grad():
+    logits = model(tgt)[0,1:-1,:] # (L, V)
+    probs = torch.nn.functional.softmax(logits, dim=1) # (L, V)
+    log_likelihoods = torch.log(probs[np.arange(len(x)), tgt[0,2:]])
+    print(log_likelihoods)
+    print(torch.exp(torch.mean(log_likelihoods)))
